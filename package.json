@@ -1,0 +1,31 @@
+{
+  "name": "pepperpad",
+  "title": "PepperPad",
+  "version": "1.0.0",
+  "description": "",
+  "author": "Jean-Philippe Côté <jp@cote.cc>",
+  "main": "index.html",
+  "type": "module",
+  "license": "UNLICENSED",
+  "window": {
+    "width": 1024,
+    "height": 1024,
+    "resizable": true
+  },
+  "chromium-args": "--disable-raf-throttling --disable-extensions-http-throttling --enable-push-api-background-mode",
+  "scripts": {
+    "run": "node ./scripts/run.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "date-and-time": "^3.1.1",
+    "form-data": "^4.0.0",
+    "node-record-lpcm16": "^1.0.1",
+    "openai": "^4.26.1",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0"
+  }
+}
