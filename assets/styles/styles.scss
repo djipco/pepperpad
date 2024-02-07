@@ -1,0 +1,36 @@
+html {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: black;
+}
+
+img {
+  display: block;
+  position: absolute;
+  width: 1024px;
+  height: 1024px;
+  z-index: 10;
+  transition: opacity 1s ease-in-out;
+  opacity: 1;
+}
+
+video {
+  display: block;
+  position: absolute;
+  opacity: 0;
+  transition: opacity 2s ease-in-out;
+  z-index: 20;
+  //mix-blend-mode: multiply;
+}
+
+button {
+  position: absolute;
+  z-index: 30;
+}
+
+#stop-recording {
+  display: none;
+}
