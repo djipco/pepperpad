@@ -17,11 +17,13 @@
     "run": "node ./scripts/run.js"
   },
   "dependencies": {
-    "axios": "^1.6.7",
+    "csv-write-stream": "^2.0.0",
     "date-and-time": "^3.1.1",
     "form-data": "^4.0.0",
     "node-record-lpcm16": "^1.0.1",
+    "onoff": "^6.0.3",
     "openai": "^4.26.1",
+    "winston": "^3.11.0",
     "winston-daily-rotate-file": "^4.7.1"
   },
   "devDependencies": {

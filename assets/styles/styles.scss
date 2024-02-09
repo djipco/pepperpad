@@ -13,8 +13,8 @@ img {
   width: 1024px;
   height: 1024px;
   z-index: 10;
-  transition: opacity 1s ease-in-out;
-  opacity: 1;
+  transition: opacity 3s ease-in-out;
+  opacity: 0;
 }
 
 video {
@@ -26,10 +26,19 @@ video {
   //mix-blend-mode: multiply;
 }
 
-button {
+section {
+
   position: absolute;
+  top: 20px;
+  right: 20px;
+  border-radius: 8px;
+  border: 1px solid white;
   z-index: 30;
+  background-color: rgba(0, 0, 0, 0.25);
+  padding: 10px;
+
 }
+
 
 #stop-recording {
   display: none;
