@@ -2,8 +2,8 @@
 const OpenAI = require("openai");
 const fs = require("fs");
 const recorder = require('node-record-lpcm16');
-const path = require('path');
-const date = require('date-and-time');
+const path = require("path");
+const date = require("date-and-time");
 // const Gpio = require("onoff").Gpio;
 const client = require('https');
 const csvWriter = require('csv-write-stream');
@@ -16,8 +16,15 @@ import {logError, logInfo} from "./Logger.js";
 export default class Application {
 
   constructor() {
-    this.recordingId = undefined; // IS THIS THE BEST WAY?????
+
+    this.lastRecordingId = undefined; // IS THIS THE BEST WAY?????
+    this.lastRecordingStartTime = 0;
+    this.lastRecordingStopTime = 0;
+    this.lastGenerationStartTime = 0;
+    this.lastGenerationStopTime = 0;
+
     this.callbacks = {};
+    this.timeouts = {};
     this.window = nw.Window.get();
     this.writer = undefined;
   }
@@ -40,13 +47,20 @@ export default class Application {
 
     // Show dev tools
     if (prefs.debug.showDevTools) this.window.showDevTools();
+    if (prefs.debug.panel) {
+      document.getElementById("debug").style.display = "block";
+    } else {
+      document.getElementById("debug").style.display = "none";
+    }
 
     // Instantiate OpenAI API object
     this.openai = new OpenAI({apiKey: credentials.openAiApiKey, dangerouslyAllowBrowser: true});
 
     // Prepare CSV writer object
     if (!fs.existsSync(prefs.paths.transcriptionFile)) {
-      this.writer = csvWriter({ headers: ["id", "transcript", "prompt"]});
+      this.writer = csvWriter({
+        headers: ["id", "transcript", "prompt", "duration_audio", "duration_generation"]
+      });
     } else {
       this.writer = csvWriter({sendHeaders: false});
     }
@@ -108,50 +122,35 @@ export default class Application {
   }
 
   #onStartRecordingSoftwareButtonClicked() {
-    document.getElementById("start-recording").style.display = "none";
-    document.getElementById("stop-recording").style.display = "block";
     return this.startRecording();
   }
 
   async #onStopRecordingSoftwareButtonClicked() {
 
-    // Adjust software button visibility
-    document.getElementById("start-recording").style.display = "none";
-    document.getElementById("stop-recording").style.display = "none";
+    let filepath;
 
-    const filepath = this.stopRecording();
+    try {
+      filepath = this.stopRecording();
+    } catch (e) {
+      this.changeVisualState("abort-image-generation")
+      logInfo(e.message);
+      return;
+    }
 
-    // Display video during generation of the image
-    document.getElementById("video").play();
-    document.getElementById("video").style.opacity = "1";
-    document.getElementById("image").style.opacity = "0";
-
-    // Generate final image
     await this.generate(filepath);
-
-    // Adjust software button visibility
-    document.getElementById("start-recording").style.display = "block";
-    document.getElementById("stop-recording").style.display = "none";
-
-    // Hide video
-    document.getElementById("video").style.opacity = "0";
-    document.getElementById("image").style.opacity = "1";
-
-    setTimeout(() => {
-      document.getElementById("video").pause();
-      document.getElementById("video").currentTime = 0;
-    }, 3000);
 
   }
 
   startRecording() {
 
-    // WE NEED TO ADD A TIMEOUT HERE!!!
+    this.lastRecordingStartTime = performance.now();
+
+    this.changeVisualState("start-recording");
 
     // Generate unique recording id
-    this.recordingId = date.format(new Date(), 'YYYY-MM-DD.HH-mm-ss-SSS') + "." +
+    this.lastRecordingId = date.format(new Date(), 'YYYY-MM-DD.HH-mm-ss-SSS') + "." +
       Math.random().toString(32).substring(2, 12);
-    const filename = this.recordingId + "." + prefs.audio.format;
+    const filename = this.lastRecordingId + "." + prefs.audio.format;
     const filepath = path.join(prefs.paths.recordedAudioFolder, filename);
 
     // Prepare recording to file
@@ -170,18 +169,59 @@ export default class Application {
       .on('error', err => logError(err))
       .pipe(file);
 
+    // Start a timeout to stop the recording if it's too long
+    this.callbacks.onRecordingTimeout = this.#onRecordingTimeout.bind(this);
+    this.timeouts.recording = setTimeout(
+      this.callbacks.onRecordingTimeout,
+      prefs.audio.recordingTimeout * 1000
+    );
+
     // Return filepath
     return filepath;
 
   }
 
+  async #onRecordingTimeout() {
+
+    // Reset timeout
+    this.callbacks.onRecordingTimeout = undefined;
+    this.timeouts.recording = undefined;
+    logInfo(`Recording timeout triggered (${prefs.audio.recordingTimeout}s)`);
+
+    // Stop recording and generate image
+    const filepath = this.stopRecording();
+    await this.generate(filepath);
+
+  }
+
   stopRecording() {
 
+    // Cancel pending recording timeout
+    if (this.timeouts.recording)  {
+      clearTimeout(this.timeouts.recording);
+      this.callbacks.onRecordingTimeout = undefined;
+      this.timeouts.recording = undefined;
+    }
+
+    // Stop recording
     this.recording.stop();
     logInfo(`Recording stopped`);
+    this.lastRecordingStopTime = performance.now();
 
-    const filename = this.recordingId + "." + prefs.audio.format;
-    return path.join(prefs.paths.recordedAudioFolder, filename);
+    const filename = this.lastRecordingId + "." + prefs.audio.format;
+
+    // Calculate recording duration
+    const duration = (this.lastRecordingStopTime - this.lastRecordingStartTime) / 1000;
+    const filepath = path.join(prefs.paths.recordedAudioFolder, filename);
+
+    // Check if duration is too short
+    if (duration < prefs.audio.minimumRecordingLength) {
+      fs.unlink(filepath, () => {}); // remove recording file
+      throw new Error(`Recording duration too short (${duration.toFixed(2)} seconds).`);
+    }
+
+    this.changeVisualState("stop-recording")
+    return filepath;
 
   }
 
@@ -190,12 +230,17 @@ export default class Application {
     // Get translated transcription from audio file
     let transcript;
 
+    this.changeVisualState("start-image-generation");
+
     try {
       transcript = await this.transcribeAudio(audioFilePath);
     } catch (e) {
-      logError(e)
+      logError(e.message)
+      this.changeVisualState("end-image-generation");
       return;
     }
+
+    const audioDuration = (this.lastRecordingStopTime - this.lastRecordingStartTime) / 1000;
 
     // A newline character gets automatically added. We remove it.
     transcript = transcript.trim();
@@ -205,45 +250,70 @@ export default class Application {
     const dummyResponses = [
       "Thank you.",
       "Thank you for watching!",
-      "Thanks for watching!"
+      "Thanks for watching!",
+      "For more information, visit www.fema.gov",
+      "Welcome!"
     ];
 
+
     if (dummyResponses.includes(transcript)) {
-      logInfo(`Resulting transcript: ""`);
-      this.saveTranscript(this.recordingId, "", "");
+      logInfo(`No transcript`);
+      this.saveTranscript(this.lastRecordingId, "", "", audioDuration, 0);
+      this.changeVisualState("end-image-generation");
       return;
     } else {
       logInfo(`Resulting transcript: "${transcript}"`);
-      this.saveTranscript(
-        this.recordingId,
-        transcript,
-        prefs.ai.generation.prompts[0].replace("{QUOTE}", transcript)
-      );
     }
 
     // Get generated image from prompt
-    let url;
+    let url, generatioDuration;
     try {
       url = await this.generateImageFromPrompt(transcript);
-      logInfo(`Generated image URL: ${url}`);
+      generatioDuration = (this.lastGenerationStopTime - this.lastGenerationStartTime) / 1000;
+      logInfo(`Generated image in ${generatioDuration.toFixed(1)} seconds`);
     } catch (e) {
-      logError(e)
+      logError(e);
+      this.changeVisualState("end-image-generation");
+      this.saveTranscript(
+        this.lastRecordingId,
+        transcript,
+        prefs.ai.generation.prompts[0].replace("{QUOTE}", transcript),
+        audioDuration,
+        0
+      );
       return;
     }
 
-    const localImagePath = path.join(prefs.paths.generatedVisualsFolder, `${this.recordingId}.png`);
+    const localImagePath = path.join(prefs.paths.generatedVisualsFolder, `${this.lastRecordingId}.png`);
 
     try {
       await this.downloadImage(url, localImagePath);
-      logInfo(`Image downloaded to ${localImagePath}`);
+      logInfo(`Image saved to local file: ${localImagePath}`);
     } catch (e) {
       logError(e);
+      this.changeVisualState("end-image-generation");
+      this.saveTranscript(
+        this.lastRecordingId,
+        transcript,
+        prefs.ai.generation.prompts[0].replace("{QUOTE}", transcript),
+        audioDuration,
+        generatioDuration
+      );
+      return;
     }
 
     // Show image
     document.getElementById("image").src = localImagePath;
-    //   HERE WE NEED FOR THE IMAGE TO BE LOADED AND DISPLAYED BEFORE FADE IN
 
+    this.changeVisualState("end-image-generation");
+
+    this.saveTranscript(
+      this.lastRecordingId,
+      transcript,
+      prefs.ai.generation.prompts[0].replace("{QUOTE}", transcript),
+      audioDuration,
+      generatioDuration
+    );
 
   }
 
@@ -251,11 +321,12 @@ export default class Application {
 
     // we need a timeout here!!!!
 
+    logInfo("Transcribing audio");
+
     return this.openai.audio.translations.create({
       file: fs.createReadStream(audioFilePath),
       model: "whisper-1",
-      response_format: "text",
-      prompt: prefs.ai.translation.prompt
+      response_format: "text"
     });
 
     // If the audio recording is too short, we get a 400 Invalide File Format error.
@@ -281,10 +352,12 @@ export default class Application {
 
     // WE NEED A TIMEOUT HERE!!!
 
+    logInfo(`Starting image generation`);
+
+    this.lastGenerationStartTime = performance.now();
+
     // Inject the transcript in the general prompt and generate the image
     const prompt = prefs.ai.generation.prompts[0].replace("{QUOTE}", transcript);
-
-    console.log(prompt);
 
     const options = {
       model: "dall-e-3",
@@ -295,7 +368,15 @@ export default class Application {
       style: "vivid"        // vivid or natural
     };
 
-    const response = await this.openai.images.generate(options);
+    let response;
+    try {
+      response = await this.openai.images.generate(options);
+    } catch (e) {
+      throw e.error;
+    }
+
+    this.lastGenerationStopTime = performance.now();
+
     return response.data[0].url;
 
   }
@@ -339,7 +420,7 @@ export default class Application {
 
   }
 
-  saveTranscript(id, transcript, prompt) {
+  saveTranscript(id, transcript, prompt, audioDuration, generationDuration) {
 
     this.writer.pipe(
       fs.createWriteStream(prefs.paths.transcriptionFile, {flags: 'a'})
@@ -348,10 +429,50 @@ export default class Application {
     this.writer.write({
       id,
       transcript: transcript.trim(),
-      prompt
+      prompt,
+      duration_audio: audioDuration.toFixed(2),
+      duration_generation: generationDuration.toFixed(2)
     });
 
     this.writer.end();
+
+  }
+
+  changeVisualState(state) {
+
+    if (state === "start-recording") {
+
+      document.getElementById("start-recording").style.display = "none";
+      document.getElementById("stop-recording").style.display = "block";
+
+    } else if (state === "stop-recording") {
+
+      document.getElementById("start-recording").style.display = "none";
+      document.getElementById("stop-recording").style.display = "none";
+
+    } else if (state === "start-image-generation") {
+
+      document.getElementById("video").play();
+      document.getElementById("video").style.opacity = "1";
+      document.getElementById("image").style.opacity = "0";
+
+    } else if (state === "end-image-generation") {
+
+      document.getElementById("start-recording").style.display = "block";
+      document.getElementById("stop-recording").style.display = "none";
+
+      document.getElementById("video").style.opacity = "0";
+      document.getElementById("image").style.opacity = "1";
+
+      setTimeout(() => {
+        document.getElementById("video").pause();
+        document.getElementById("video").currentTime = 0;
+      }, 3000);
+
+    } else if (state === "abort-image-generation") {
+      document.getElementById("start-recording").style.display = "block";
+      document.getElementById("stop-recording").style.display = "none";
+    }
 
   }
 

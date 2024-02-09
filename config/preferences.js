@@ -1,6 +1,7 @@
 export default {
 
   debug: {
+    panel: true,
     showDevTools: true
   },
 
@@ -11,49 +12,47 @@ export default {
   },
 
   audio: {
-    format: "mp3" // mp3 or wav
+    format: "mp3",                // mp3 or wav
+    recordingTimeout: 30,         // in seconds
+    minimumRecordingLength: 1.5   // in seconds
   },
 
   ai: {
-    translation: {
-      prompt: "It is very likely that the language used is French or English."
-    },
     generation: {
       prompts: [
 
-
-
-
-
-
         `I need you to create an image. It will be used in an artistic interactive installation. The
-        image must depict a single object that embodies the essence of the following text that was 
-        submitted by a visitor. Here is the submitted text: "{QUOTE}"
+        image must depict a single isolated object that embodies the essence of the following text 
+        that was submitted by a visitor. Here is the submitted text: "{QUOTE}"
         
         The image must respect the following conditions:
         
-        - It must have a pure black background. This is important because the it will be viewed 
+        - It must have a pure black background. This is very important because it will be viewed 
         using the pepper's ghost technique. 
         
         - The object in the image should be rendered in a photorealistic style, yet carry an aura of 
         otherworldliness.
         
         - The main object should be positionned in the center, devoid of any surrounding context or 
-        environment. It must not touch the edges of the image.
+        environment. It must not cast shadows and there must be no ground. 
+        
+        - The object must be floating on the black background and it must not touch the edges of the 
+        image.
         
         - The visual elements should appear as though they are gently emerging from a delicate mist 
         of swirling smoke and faint dust, enhancing their mysterious allure.
         
-        - The image must be crafted from an detailed blend of natural and artificial elements — 
-        think of a fusion of entangled branches, lush vegetation, and complex mechanical and 
+        - The image must be crafted from a detailed blend of natural and artificial elements — 
+        think of a fusion of entangled branches, lush vegetation, and complex mechanical and
         electrical components, all woven together in a steampunk-inspired design.
           
         - The image should be bathed in a palette of under-saturated colors with a subtle blueish 
         tint.
         
-        - The image should be edgy with a touch of eroticism.
-
-        Make sure to pick an object that respects the content and safety policies.`,
+        - The image must not contain any text and it shouldn't look like a diagram.
+        
+        Important: if this prompt does not respect the content or safety policies, alter it so that 
+        all policies are fully respected.`,
 
 
         `Here is a text excerpt: "{QUOTE}". Identify a single, isolated, object that
