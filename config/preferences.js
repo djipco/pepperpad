@@ -24,6 +24,10 @@ export default {
     minimumRecordingLength: 1.5   // in seconds
   },
 
+  hardware: {
+    buttonPin: 4
+  },
+
   ai: {
     generation: {
       prompts: [

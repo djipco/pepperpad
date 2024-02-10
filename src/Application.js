@@ -6,7 +6,10 @@ const fs = require("fs");
 const OpenAI = require("openai");
 const path = require("path");
 const recorder = require('node-record-lpcm16');
-// const Gpio = require("onoff").Gpio;
+
+// Import Gpio module only on Linux (this is necessary on the Pi)
+let Gpio = undefined;
+if (process.platform === "linux") Gpio = require("onoff").Gpio;
 
 // Import relevant project classes
 import credentials from "../config/.credentials.js";
@@ -82,20 +85,22 @@ export default class Application {
       this.callbacks.onStopRecordingSoftwareButtonClicked
     );
 
+    // If we are on Linux (hopefully raspbian), we watch the hardware button for clicks
+    if (Gpio && Gpio.accessible) {
+      this.button = new Gpio(prefs.hardware.buttonPin, 'in', "both", {debounceTimeout: 20});
+      this.callbacks.onHardwareButtonInteraction = this.#onHardwareButtonInteraction.bind(this);
+      this.button.watch(this.callbacks.onHardwareButtonInteraction);
+    }
+
     // Display last generated image
     const path = this.getLastFilePath(prefs.paths.generatedVisualsFolder);
     if (path) document.getElementById("image").src = path;
     document.getElementById("image").style.opacity = "1";
 
-    // Instantiate hardware record button
-    // this.button = new Gpio(4, 'in', "both", {debounceTimeout: 20});
+  }
 
-    // Watch for presses on hardware button
-    // this.button.watch((err, value) => {
-    //   if (err) throw err;
-    //
-    // });
-
+  #onHardwareButtonInteraction(err, value) {
+    console.log("Button value", value);
   }
 
   quit() {
@@ -107,7 +112,10 @@ export default class Application {
 
     this.window.closeDevTools();
 
-    // this.button.unexport();
+    if (Gpio && Gpio.accessible) {
+      this.button.unwatchAll()
+      this.button.unexport();
+    }
 
     logInfo(`${nw.App.manifest.title} stopped`);
 
@@ -132,7 +140,7 @@ export default class Application {
     try {
       filepath = this.stopRecording();
     } catch (e) {
-      this.changeVisualState("abort-image-generation")
+      this.changeVisualState("abort-image-generation");
       logInfo(e.message);
       return;
     }
@@ -219,7 +227,7 @@ export default class Application {
       throw new Error(`Recording duration too short (${duration.toFixed(2)} seconds).`);
     }
 
-    this.changeVisualState("stop-recording")
+    this.changeVisualState("stop-recording");
     return filepath;
 
   }
@@ -235,7 +243,6 @@ export default class Application {
       transcript = await this.transcribeAudio(audioFilePath);
     } catch (e) {
       logError(e.message)
-      this.changeVisualState("end-image-generation");
       return;
     }
 
@@ -251,13 +258,17 @@ export default class Application {
       "Thank you for watching!",
       "Thanks for watching!",
       "For more information, visit www.fema.gov",
-      "Welcome!"
+      "Welcome!",
+      "you",
+      "You",
+      ""
     ];
 
     if (dummyResponses.includes(transcript)) {
       logInfo(`No transcript`);
       this.saveTranscript(this.lastRecordingId, "", "", audioDuration, 0);
-      this.changeVisualState("end-image-generation");
+      // We add a timeout so the video does not flash
+      setTimeout(() => this.changeVisualState("end-image-generation"), 1500);
       return;
     } else {
       logInfo(`Resulting transcript: "${transcript}"`);
