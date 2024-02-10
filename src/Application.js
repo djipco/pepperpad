@@ -1,12 +1,12 @@
 // Import external Node.js modules
-const OpenAI = require("openai");
-const fs = require("fs");
-const recorder = require('node-record-lpcm16');
-const path = require("path");
-const date = require("date-and-time");
-// const Gpio = require("onoff").Gpio;
 const client = require('https');
 const csvWriter = require('csv-write-stream');
+const date = require("date-and-time");
+const fs = require("fs");
+const OpenAI = require("openai");
+const path = require("path");
+const recorder = require('node-record-lpcm16');
+// const Gpio = require("onoff").Gpio;
 
 // Import relevant project classes
 import credentials from "../config/.credentials.js";
@@ -162,7 +162,6 @@ export default class Application {
       channels: 1,
       audioType: prefs.audio.format
     });
-
     logInfo(`Recording started in: ${filepath}`);
 
     this.recording.stream()
@@ -255,7 +254,6 @@ export default class Application {
       "Welcome!"
     ];
 
-
     if (dummyResponses.includes(transcript)) {
       logInfo(`No transcript`);
       this.saveTranscript(this.lastRecordingId, "", "", audioDuration, 0);
@@ -319,9 +317,7 @@ export default class Application {
 
   async transcribeAudio(audioFilePath) {
 
-    // we need a timeout here!!!!
-
-    logInfo("Transcribing audio");
+    logInfo("Transcribing and translating audio");
 
     return this.openai.audio.translations.create({
       file: fs.createReadStream(audioFilePath),
