@@ -2,7 +2,7 @@
   "name": "pepperpad",
   "title": "PepperPad",
   "version": "1.0.0",
-  "description": "",
+  "description": "AI-powered Pepper's ghost artistic experiment",
   "author": "Jean-Philippe Côté <jp@cote.cc>",
   "main": "index.html",
   "type": "module",
@@ -12,7 +12,7 @@
     "height": 1024,
     "resizable": true
   },
-  "chromium-args": "--disable-raf-throttling --disable-extensions-http-throttling --enable-push-api-background-mode",
+  "chromium-args": "",
   "scripts": {
     "run": "node ./scripts/run.js"
   },
