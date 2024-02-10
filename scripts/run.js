@@ -1,32 +1,20 @@
-// Modules
+// Node.js module import
 import {spawn} from "child_process";
 import path from "path";
 import { fileURLToPath } from 'url';
+import prefs from "../config/preferences.js";
 
-// Get file and directory names
+// Get current file and directory name and define necessary paths
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const root = path.join(__dirname, "..");
+const engines = path.join(root, prefs.paths.enginesFolder);
 
-// Environment
-let root = path.join(__dirname, "..");
-let engines= path.join(root, "engines");
-
-// Executables accodring to platform
-let apps = {
-  macos: path.join("nwjs.app", "Contents", "MacOS", "nwjs"),
-  windows: path.join("nwjs-sdk-v0.83.0-win-x64", "nw.exe"),
-  linux: path.join("nwjs-sdk-v0.51.2-linux-x64", "nw"),
-};
-
-// Check current platform
-let command;
-if (process.platform === "darwin") {
-  command = path.join(engines, apps.macos);
-} else if (process.platform === "win32") {
-  command = path.join(engines, apps.windows);
-} else {
-  throw new Error(`Unsupported platform! (${process.platform})`);
+try {
+  const command = path.join(engines, prefs.engines[process.platform]);
+  const child = spawn(command, [root], { detached: true, stdio: "ignore" });
+  child.unref();
+} catch (e) {
+  console.error(`Error: Unable to start "${prefs.engines[process.platform]}" engine.`);
+  process.exit(1);
 }
-
-const child = spawn(command, [root], { detached: true, stdio: "ignore" });
-child.unref();

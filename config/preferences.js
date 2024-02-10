@@ -5,10 +5,17 @@ export default {
     showDevTools: true
   },
 
+  engines: {
+    darwin: "nwjs.app/Contents/MacOS/nwjs",     // macOS
+    win32: "nwjs-sdk-v0.83.0-win-x64/nw.exe",   // Windows
+    linux: "nwjs-sdk-v0.51.2-linux-x64/nw"      // Linux
+  },
+
   paths: {
     recordedAudioFolder: "./generated/recordings",
     generatedVisualsFolder: "./generated/images",
-    transcriptionFile: "generated/transcripts.csv"
+    transcriptionFile: "generated/transcripts.csv",
+    enginesFolder: "engines"
   },
 
   audio: {
