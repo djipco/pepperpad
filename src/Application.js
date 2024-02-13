@@ -20,16 +20,17 @@ export default class Application {
 
   constructor() {
 
-    this.lastRecordingId = undefined; // IS THIS THE BEST WAY?????
+    this.lastRecordingId = undefined;
     this.lastRecordingStartTime = 0;
     this.lastRecordingStopTime = 0;
     this.lastGenerationStartTime = 0;
     this.lastGenerationStopTime = 0;
 
-    this.callbacks = {};
-    this.timeouts = {};
-    this.window = nw.Window.get();
-    this.writer = undefined;
+    this.callbacks = {};              // callbacks used in the app
+    this.timeouts = {};               // timeouts used in the app
+    this.window = nw.Window.get();    // NW.js main window
+    this.writer = undefined;          // csv writer
+
   }
 
   start() {
@@ -57,7 +58,11 @@ export default class Application {
     }
 
     // Instantiate OpenAI API object
-    this.openai = new OpenAI({apiKey: credentials.openAiApiKey, dangerouslyAllowBrowser: true});
+    this.openai = new OpenAI({
+      apiKey: credentials.openAiApiKey,
+      dangerouslyAllowBrowser: true,
+      timeout: prefs.timeouts.api * 1000
+    });
 
     // Prepare CSV writer object
     if (!fs.existsSync(prefs.paths.transcriptionFile)) {
@@ -94,8 +99,8 @@ export default class Application {
 
     // Display last generated image
     const path = this.getLastFilePath(prefs.paths.generatedVisualsFolder);
-    if (path) document.getElementById("image").src = path;
-    document.getElementById("image").style.opacity = "1";
+    if (path) document.getElementById("generated-image").src = path;
+    document.getElementById("generated-image").style.opacity = "1";
 
   }
 
@@ -180,7 +185,7 @@ export default class Application {
     this.callbacks.onRecordingTimeout = this.#onRecordingTimeout.bind(this);
     this.timeouts.recording = setTimeout(
       this.callbacks.onRecordingTimeout,
-      prefs.audio.recordingTimeout * 1000
+      prefs.timeouts.recording * 1000
     );
 
     // Return filepath
@@ -193,7 +198,7 @@ export default class Application {
     // Reset timeout
     this.callbacks.onRecordingTimeout = undefined;
     this.timeouts.recording = undefined;
-    logInfo(`Recording timeout triggered (${prefs.audio.recordingTimeout}s)`);
+    logInfo(`Recording timeout triggered (${prefs.timeouts.recording}s)`);
 
     // Stop recording and generate image
     const filepath = this.stopRecording();
@@ -242,7 +247,8 @@ export default class Application {
     try {
       transcript = await this.transcribeAudio(audioFilePath);
     } catch (e) {
-      logError(e.message)
+      logError(e.message);
+      setTimeout(() => this.changeVisualState("end-image-generation"), 1500);
       return;
     }
 
@@ -267,7 +273,6 @@ export default class Application {
     if (dummyResponses.includes(transcript)) {
       logInfo(`No transcript`);
       this.saveTranscript(this.lastRecordingId, "", "", audioDuration, 0);
-      // We add a timeout so the video does not flash
       setTimeout(() => this.changeVisualState("end-image-generation"), 1500);
       return;
     } else {
@@ -312,7 +317,7 @@ export default class Application {
     }
 
     // Show image
-    document.getElementById("image").src = localImagePath;
+    document.getElementById("generated-image").src = localImagePath;
 
     this.changeVisualState("end-image-generation");
 
@@ -330,11 +335,21 @@ export default class Application {
 
     logInfo("Transcribing and translating audio");
 
-    return this.openai.audio.translations.create({
-      file: fs.createReadStream(audioFilePath),
-      model: "whisper-1",
-      response_format: "text"
-    });
+    let transcript;
+
+    try {
+
+      transcript = await this.openai.audio.translations.create({
+        file: fs.createReadStream(audioFilePath),
+        model: "whisper-1",
+        response_format: "text"
+      });
+
+    } catch (e) {
+      throw new Error(`Could not complete transcription and translation: ${e.message}`);
+    }
+
+    return transcript;
 
     // If the audio recording is too short, we get a 400 Invalide File Format error.
 
@@ -356,8 +371,6 @@ export default class Application {
   }
 
   async generateImageFromPrompt(transcript) {
-
-    // WE NEED A TIMEOUT HERE!!!
 
     logInfo(`Starting image generation`);
 
@@ -452,28 +465,38 @@ export default class Application {
       document.getElementById("start-recording").style.display = "none";
       document.getElementById("stop-recording").style.display = "block";
 
+      document.getElementById("recording").play();
+      document.getElementById("recording").style.opacity = "1";
+
     } else if (state === "stop-recording") {
 
       document.getElementById("start-recording").style.display = "none";
       document.getElementById("stop-recording").style.display = "none";
 
+      document.getElementById("recording").style.opacity = "0";
+
+      setTimeout(() => {
+        document.getElementById("recording").pause();
+        document.getElementById("recording").currentTime = 0;
+      }, 3000);
+
     } else if (state === "start-image-generation") {
 
-      document.getElementById("video").play();
-      document.getElementById("video").style.opacity = "1";
-      document.getElementById("image").style.opacity = "0";
+      document.getElementById("generation").play();
+      document.getElementById("generation").style.opacity = "1";
+      document.getElementById("generated-image").style.opacity = "0";
 
     } else if (state === "end-image-generation") {
 
       document.getElementById("start-recording").style.display = "block";
       document.getElementById("stop-recording").style.display = "none";
 
-      document.getElementById("video").style.opacity = "0";
-      document.getElementById("image").style.opacity = "1";
+      document.getElementById("generation").style.opacity = "0";
+      document.getElementById("generated-image").style.opacity = "1";
 
       setTimeout(() => {
-        document.getElementById("video").pause();
-        document.getElementById("video").currentTime = 0;
+        document.getElementById("generation").pause();
+        document.getElementById("generation").currentTime = 0;
       }, 3000);
 
     } else if (state === "abort-image-generation") {

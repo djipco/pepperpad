@@ -20,8 +20,12 @@ export default {
 
   audio: {
     format: "mp3",                // mp3 or wav
-    recordingTimeout: 30,         // in seconds
     minimumRecordingLength: 1.5   // in seconds
+  },
+
+  timeouts: {
+    api: 120,                     // in seconds
+    recording: 30                 // in seconds
   },
 
   hardware: {
