@@ -477,33 +477,40 @@ export default class Application {
 
     } else if (state === "start-recording") {
 
+      if (this.timeouts.stopRecordingAnimationTimeout) {
+        clearTimeout(this.timeouts.stopRecordingAnimationTimeout);
+        this.timeouts.stopRecordingAnimationTimeout = undefined;
+      }
+
       document.getElementById("start-recording").style.display = "none";
       document.getElementById("stop-recording").style.display = "block";
 
+      document.getElementById("recording").currentTime = 0;
       document.getElementById("recording").play();
       document.getElementById("recording").style.opacity = "1";
-
-    // } else if (state === "abort-recording") {
-    //
-    //   document.getElementById("start-recording").style.display = "block";
-    //   document.getElementById("stop-recording").style.display = "none";
-    //
-    //   document.getElementById("recording").style.opacity = "0";
 
     } else if (state === "stop-recording") {
 
       document.getElementById("start-recording").style.display = "block";
       document.getElementById("stop-recording").style.display = "none";
-
       document.getElementById("recording").style.opacity = "0";
 
-      setTimeout(() => {
-        document.getElementById("recording").pause();
-        document.getElementById("recording").currentTime = 0;
-      }, 3000);
+      this.timeouts.stopRecordingAnimationTimeout = setTimeout(
+        () => {
+          document.getElementById("recording").currentTime = 0;
+          document.getElementById("recording").pause();
+        },
+        3000
+      );
 
     } else if (state === "start-image-generation") {
 
+      if (this.timeouts.endImageGenerationAnimationTimeout) {
+        clearTimeout(this.timeouts.endImageGenerationAnimationTimeout);
+        this.timeouts.endImageGenerationAnimationTimeout = undefined;
+      }
+
+      document.getElementById("generation").currentTime = 0;
       document.getElementById("generation").play();
       document.getElementById("generation").style.opacity = "1";
       document.getElementById("generated-image").style.opacity = "0";
@@ -513,7 +520,7 @@ export default class Application {
       document.getElementById("generation").style.opacity = "0";
       document.getElementById("generated-image").style.opacity = "1";
 
-      setTimeout(() => {
+      this.timeouts.endImageGenerationAnimationTimeout = setTimeout(() => {
         document.getElementById("generation").pause();
         document.getElementById("generation").currentTime = 0;
       }, 3000);
