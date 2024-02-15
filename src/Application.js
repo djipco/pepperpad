@@ -5,43 +5,49 @@ const date = require("date-and-time");
 const fs = require("fs");
 const OpenAI = require("openai");
 const path = require("path");
+const pkg = require('package.json');
 const recorder = require('node-record-lpcm16');
 
-// Import Gpio module only on Linux (this is necessary on the Pi)
+// Import Gpio module only on Linux (this is for GPIO inputs on the Pi)
 let Gpio = undefined;
 if (process.platform === "linux") Gpio = require("onoff").Gpio;
 
 // Import relevant project classes
+import {logError, logInfo} from "./Logger.js";
 import credentials from "../config/.credentials.js";
 import prefs from "../config/preferences.js";
-import {logError, logInfo} from "./Logger.js";
 
 export default class Application {
 
   constructor() {
-
-    this.lastRecordingId = undefined;
-    this.lastRecordingStartTime = 0;
-    this.lastRecordingStopTime = 0;
-    this.lastGenerationStartTime = 0;
-    this.lastGenerationStopTime = 0;
-
-    this.callbacks = {};              // callbacks used in the app
-    this.timeouts = {};               // timeouts used in the app
-    this.window = nw.Window.get();    // NW.js main window
-    this.writer = undefined;          // csv writer
-
+    this.button = undefined;            // GPIO hardware button input
+    this.callbacks = {};                // callbacks used in the app
+    this.generating = false;            // whether the application is currently generating an image
+    this.lastRecordingId = undefined;   // id of last recording
+    this.lastRecordingStartTime = 0;    // start time of last recording
+    this.lastRecordingStopTime = 0;     // stop time of last recording
+    this.lastGenerationStartTime = 0;   // start time of last image generation
+    this.lastGenerationStopTime = 0;    // stop time of last mage generation
+    this.openai = undefined;            // OpenAI API
+    this.recording = undefined;         // current audio recording
+    this.timeouts = {};                 // timeouts used in the app
+    this.window = nw.Window.get();      // NW.js main window
+    this.writer = undefined;            // csv writer
   }
 
   start() {
 
     // Watch for various quitting signals
     this.callbacks.onExitRequest = this.#onExitRequest.bind(this);
-    process.on("SIGINT", this.callbacks.onExitRequest);       // CTRL+C
-    process.on("SIGQUIT", this.callbacks.onExitRequest);      // Keyboard quit
-    process.on("SIGTERM", this.callbacks.onExitRequest);      // `kill` command
-    this.window.on("close", this.callbacks.onExitRequest);    // Window closed
+    process.on("SIGINT", this.callbacks.onExitRequest);               // CTRL+C
+    process.on("SIGQUIT", this.callbacks.onExitRequest);              // Keyboard quit
+    process.on("SIGTERM", this.callbacks.onExitRequest);              // `kill` command
+    this.window.on("close", this.callbacks.onExitRequest);            // Window closed
 
+    // Display splash screen
+    this.changeVisualState("splashscreen");
+
+    // Log environment info
     logInfo(
       nw.App.manifest.title + " started " +
       "(NW.js " + process.versions["nw-flavor"].toUpperCase() + " v" + process.versions["nw"] +
@@ -49,12 +55,16 @@ export default class Application {
       "Node.js v" + process.versions["node"] + ")"
     );
 
-    // Show dev tools
-    if (prefs.debug.showDevTools) this.window.showDevTools();
-    if (prefs.debug.panel) {
-      document.getElementById("debug").style.display = "block";
-    } else {
-      document.getElementById("debug").style.display = "none";
+    // Show browser context dev tools
+    if (prefs.debug.showBrowserDevTools) this.window.showDevTools();
+
+    // Show Node context dev tools
+    if (prefs.debug.showNodeDevTools) {
+      chrome.developerPrivate.openDevTools({
+        renderViewId: -1,
+        renderProcessId: -1,
+        extensionId: chrome.runtime.id
+      });
     }
 
     // Instantiate OpenAI API object
@@ -73,19 +83,20 @@ export default class Application {
       this.writer = csvWriter({sendHeaders: false});
     }
 
-    // Watch for clicks on software buttons
-    this.startRecordingSoftwareButton = document.getElementById('start-recording');
+    // Watch for clicks on software start recording buttons
+    const startRecordingSoftwareButton = document.getElementById('start-recording');
     this.callbacks.onStartRecordingSoftwareButtonClicked =
       this.#onStartRecordingSoftwareButtonClicked.bind(this);
-    this.startRecordingSoftwareButton.addEventListener(
+    startRecordingSoftwareButton.addEventListener(
       "click",
       this.callbacks.onStartRecordingSoftwareButtonClicked
     );
 
-    this.stopRecordingSoftwareButton = document.getElementById('stop-recording');
+    // Watch for clicks on software stop recording buttons
+    const stopRecordingSoftwareButton = document.getElementById('stop-recording');
     this.callbacks.onStopRecordingSoftwareButtonClicked =
       this.#onStopRecordingSoftwareButtonClicked.bind(this);
-    this.stopRecordingSoftwareButton.addEventListener(
+    stopRecordingSoftwareButton.addEventListener(
       "click",
       this.callbacks.onStopRecordingSoftwareButtonClicked
     );
@@ -97,26 +108,23 @@ export default class Application {
       this.button.watch(this.callbacks.onHardwareButtonInteraction);
     }
 
-    // Display last generated image
-    const path = this.getLastFilePath(prefs.paths.generatedVisualsFolder);
-    if (path) document.getElementById("generated-image").src = path;
-    document.getElementById("generated-image").style.opacity = "1";
+    // Switch visuals
+    setTimeout(() => this.changeVisualState("start"), 1200);
 
-  }
-
-  #onHardwareButtonInteraction(err, value) {
-    console.log("Button value", value);
   }
 
   quit() {
 
+    // Quickly hide window so reactivity appears fast
+    this.window.hide();
+
+    // Remove quitting listeners
     process.off("SIGINT", this.callbacks.onExitRequest);       // CTRL+C
     process.off("SIGQUIT", this.callbacks.onExitRequest);      // Keyboard quit
     process.off("SIGTERM", this.callbacks.onExitRequest);      // `kill` command
     this.window.removeAllListeners('close');                   // Window closed
 
-    this.window.closeDevTools();
-
+    // Release resources used by the button
     if (Gpio && Gpio.accessible) {
       this.button.unwatchAll()
       this.button.unexport();
@@ -124,41 +132,19 @@ export default class Application {
 
     logInfo(`${nw.App.manifest.title} stopped`);
 
-    this.window.hide();
+    // Close NW.js window and exit
     this.window.close(true);
     process.exit();
 
   }
 
-  #onExitRequest() {
-    this.quit();
-  }
-
-  #onStartRecordingSoftwareButtonClicked() {
-    return this.startRecording();
-  }
-
-  async #onStopRecordingSoftwareButtonClicked() {
-
-    let filepath;
-
-    try {
-      filepath = this.stopRecording();
-    } catch (e) {
-      this.changeVisualState("abort-image-generation");
-      logInfo(e.message);
-      return;
-    }
-
-    await this.generate(filepath);
-
-  }
-
   startRecording() {
 
-    this.lastRecordingStartTime = performance.now();
-
+    // Adjust visuals
     this.changeVisualState("start-recording");
+
+    // Note start time
+    this.lastRecordingStartTime = performance.now();
 
     // Generate unique recording id
     this.lastRecordingId = date.format(new Date(), 'YYYY-MM-DD.HH-mm-ss-SSS') + "." +
@@ -177,6 +163,7 @@ export default class Application {
     });
     logInfo(`Recording started in: ${filepath}`);
 
+    // Pipe recording stream to file
     this.recording.stream()
       .on('error', err => logError(err))
       .pipe(file);
@@ -193,19 +180,6 @@ export default class Application {
 
   }
 
-  async #onRecordingTimeout() {
-
-    // Reset timeout
-    this.callbacks.onRecordingTimeout = undefined;
-    this.timeouts.recording = undefined;
-    logInfo(`Recording timeout triggered (${prefs.timeouts.recording}s)`);
-
-    // Stop recording and generate image
-    const filepath = this.stopRecording();
-    await this.generate(filepath);
-
-  }
-
   stopRecording() {
 
     // Cancel pending recording timeout
@@ -217,9 +191,11 @@ export default class Application {
 
     // Stop recording
     this.recording.stop();
+    this.recording = undefined;
     logInfo(`Recording stopped`);
     this.lastRecordingStopTime = performance.now();
 
+    // Assemble file name
     const filename = this.lastRecordingId + "." + prefs.audio.format;
 
     // Calculate recording duration
@@ -229,6 +205,7 @@ export default class Application {
     // Check if duration is too short
     if (duration < prefs.audio.minimumRecordingLength) {
       fs.unlink(filepath, () => {}); // remove recording file
+      this.changeVisualState("stop-recording");
       throw new Error(`Recording duration too short (${duration.toFixed(2)} seconds).`);
     }
 
@@ -239,16 +216,20 @@ export default class Application {
 
   async generate(audioFilePath) {
 
+    this.generating = true;
+    this.changeVisualState("start-image-generation");
+
     // Get translated transcription from audio file
     let transcript;
-
-    this.changeVisualState("start-image-generation");
 
     try {
       transcript = await this.transcribeAudio(audioFilePath);
     } catch (e) {
       logError(e.message);
-      setTimeout(() => this.changeVisualState("end-image-generation"), 1500);
+      setTimeout(() => {
+        this.changeVisualState("end-image-generation");
+        this.generating = false;
+      }, 1500);
       return;
     }
 
@@ -273,7 +254,10 @@ export default class Application {
     if (dummyResponses.includes(transcript)) {
       logInfo(`No transcript`);
       this.saveTranscript(this.lastRecordingId, "", "", audioDuration, 0);
-      setTimeout(() => this.changeVisualState("end-image-generation"), 1500);
+      setTimeout(() => {
+        this.changeVisualState("end-image-generation")
+        this.generating = false;
+      }, 1500);
       return;
     } else {
       logInfo(`Resulting transcript: "${transcript}"`);
@@ -295,6 +279,7 @@ export default class Application {
         audioDuration,
         0
       );
+      this.generating = false;
       return;
     }
 
@@ -313,6 +298,7 @@ export default class Application {
         audioDuration,
         generatioDuration
       );
+      this.generating = false;
       return;
     }
 
@@ -328,6 +314,8 @@ export default class Application {
       audioDuration,
       generatioDuration
     );
+
+    this.generating = false;
 
   }
 
@@ -460,7 +448,34 @@ export default class Application {
 
   changeVisualState(state) {
 
-    if (state === "start-recording") {
+    if (state === "splashscreen") {
+
+      document.getElementById("name").textContent = pkg.title;
+      document.getElementsByTagName("title")[0].textContent = pkg.title;
+      document.getElementById("version").textContent = `v${pkg.version}`;
+      document.getElementById("splashscreen").style.opacity = "1";
+
+    } else if (state === "start") {
+
+      document.getElementById("splashscreen").style.opacity = "0";
+
+      // Display last generated image
+      const path = this.getLastFilePath(prefs.paths.generatedVisualsFolder);
+      if (path) document.getElementById("generated-image").src = path;
+      document.getElementById("generated-image").style.opacity = "1";
+
+      setTimeout(() => {
+
+        if (prefs.debug.panel) {
+          document.getElementById("debug").style.display = "block";
+        } else {
+          document.getElementById("debug").style.display = "none";
+        }
+
+      }, 2000);
+
+
+    } else if (state === "start-recording") {
 
       document.getElementById("start-recording").style.display = "none";
       document.getElementById("stop-recording").style.display = "block";
@@ -468,9 +483,16 @@ export default class Application {
       document.getElementById("recording").play();
       document.getElementById("recording").style.opacity = "1";
 
+    // } else if (state === "abort-recording") {
+    //
+    //   document.getElementById("start-recording").style.display = "block";
+    //   document.getElementById("stop-recording").style.display = "none";
+    //
+    //   document.getElementById("recording").style.opacity = "0";
+
     } else if (state === "stop-recording") {
 
-      document.getElementById("start-recording").style.display = "none";
+      document.getElementById("start-recording").style.display = "block";
       document.getElementById("stop-recording").style.display = "none";
 
       document.getElementById("recording").style.opacity = "0";
@@ -488,9 +510,6 @@ export default class Application {
 
     } else if (state === "end-image-generation") {
 
-      document.getElementById("start-recording").style.display = "block";
-      document.getElementById("stop-recording").style.display = "none";
-
       document.getElementById("generation").style.opacity = "0";
       document.getElementById("generated-image").style.opacity = "1";
 
@@ -499,10 +518,93 @@ export default class Application {
         document.getElementById("generation").currentTime = 0;
       }, 3000);
 
-    } else if (state === "abort-image-generation") {
-      document.getElementById("start-recording").style.display = "block";
-      document.getElementById("stop-recording").style.display = "none";
     }
+
+  }
+
+  #onExitRequest() {
+    this.quit();
+  }
+
+  async #onHardwareButtonInteraction(err, value) {
+
+    if (err) {
+      logError(err.message);
+      return;
+    }
+
+    if (value) {    // Button pressed
+
+      if (this.recording || this.generating) {
+        logInfo("Application is currently recording or generating. Ignoring request to start recording.");
+        return;
+      }
+
+      return this.startRecording();
+
+    } else {      // Button released
+
+      if (!this.recording) {
+        logInfo("Application is not currently recording. Ignoring request to stop recording.");
+        return;
+      }
+
+      let filepath;
+
+      try {
+        filepath = this.stopRecording();
+      } catch (e) {
+        logInfo(e.message);
+        return;
+      }
+
+      await this.generate(filepath);
+
+    }
+
+  }
+
+  async #onStopRecordingSoftwareButtonClicked() {
+
+    if (!this.recording) {
+      logInfo("Application is not currently recording. Ignoring request to stop recording.");
+      return;
+    }
+
+    let filepath;
+
+    try {
+      filepath = this.stopRecording();
+    } catch (e) {
+      logInfo(e.message);
+      return;
+    }
+
+    await this.generate(filepath);
+
+  }
+
+  #onStartRecordingSoftwareButtonClicked() {
+
+    if (this.recording || this.generating) {
+      logInfo("Application is currently recording or generating. Ignoring request to start recording.");
+      return;
+    }
+
+    return this.startRecording();
+
+  }
+
+  async #onRecordingTimeout() {
+
+    // Reset timeout
+    this.callbacks.onRecordingTimeout = undefined;
+    this.timeouts.recording = undefined;
+    logInfo(`Recording timeout triggered (${prefs.timeouts.recording}s)`);
+
+    // Stop recording and generate image
+    const filepath = this.stopRecording();
+    await this.generate(filepath);
 
   }
 

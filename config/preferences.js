@@ -2,7 +2,8 @@ export default {
 
   debug: {
     panel: true,
-    showDevTools: true
+    showBrowserDevTools: true,
+    showNodeDevTools: true
   },
 
   engines: {
@@ -24,7 +25,7 @@ export default {
   },
 
   timeouts: {
-    api: 120,                     // in seconds
+    api: 90,                      // in seconds
     recording: 30                 // in seconds
   },
 

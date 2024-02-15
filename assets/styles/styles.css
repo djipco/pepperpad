@@ -7,6 +7,30 @@ body {
   background-color: black;
 }
 
+#splashscreen {
+  position: absolute;
+  width: 1024px;
+  height: 1024px;
+  z-index: 50;
+  text-align: center;
+  font-family: sans-serif;
+  font-size: 36px;
+  transition: opacity 0.5s ease-in-out;
+  opacity: 0;
+}
+#splashscreen h1 {
+  color: white;
+  font-weight: bold;
+  border: 2px solid white;
+  margin: 10% 25% 0 25%;
+  border-radius: 20px;
+  padding: 0.3em 0 0.2em 0;
+}
+#splashscreen h1 span#version {
+  font-weight: normal;
+  font-size: 0.6em;
+}
+
 #debug {
   display: none;
   position: absolute;
@@ -14,7 +38,7 @@ body {
   right: 20px;
   border-radius: 8px;
   border: 1px solid white;
-  z-index: 50;
+  z-index: 60;
   background-color: rgba(0, 0, 0, 0.25);
   padding: 10px;
 }
@@ -44,7 +68,7 @@ body {
   display: block;
   position: absolute;
   opacity: 0;
-  transition: opacity 2s ease-in-out;
+  transition: opacity 3s ease-in-out;
   z-index: 40;
 }
 

@@ -1,8 +1,8 @@
 {
-  "name": "pepperpad",
-  "title": "PepperPad",
-  "version": "1.0.0",
-  "description": "AI-powered Pepper's ghost artistic experiment",
+  "name": "uchronie",
+  "title": "Uchronie",
+  "version": "1.0.0b",
+  "description": "Uchronie is an AI-powered interactive artistic experiment",
   "author": "Jean-Philippe Côté <jp@cote.cc>",
   "main": "index.html",
   "type": "module",
@@ -17,6 +17,7 @@
     "run": "node ./scripts/run.js"
   },
   "dependencies": {
+    "address": "^2.0.1",
     "csv-write-stream": "^2.0.0",
     "date-and-time": "^3.1.1",
     "form-data": "^4.0.0",
